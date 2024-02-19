@@ -1,29 +1,51 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using MongoDB.Bson;
 using MongoDB.Driver;
+//using MongoDB.Driver.Core.Configuration;
 using Rinha2024.Models;
 
-var builder = WebApplication.CreateBuilder(args);
+// Create a MongoClientSettings object
+var settings = new MongoClientSettings()
+{
+    Server = new MongoServerAddress(Environment.GetEnvironmentVariable("MONGO_HOST", EnvironmentVariableTarget.Process), 27017),
+    ConnectTimeout = new TimeSpan(0, 0, 60),
+    MaxConnecting = 5,
+    MaxConnectionPoolSize = 160,
+    MinConnectionPoolSize = 10,
+    SocketTimeout = new TimeSpan(0, 0, 3)
+};
 
-
-var mongoClient = new MongoClient($"mongodb://{Environment.GetEnvironmentVariable("MONGO_HOST", EnvironmentVariableTarget.Process)}:27017");
+//var mongoClient = new MongoClient($"mongodb://{Environment.GetEnvironmentVariable("MONGO_HOST", EnvironmentVariableTarget.Process)}:27017");
 
 //var mongoClient = new MongoClient($"mongodb://localhost:27017");
 
-builder.Services.AddSingleton<IMongoClient>(_ => mongoClient);
+var mongoClient = new MongoClient(settings);
+
+var builder = WebApplication.CreateBuilder(args);
+
+var adm = mongoClient.GetDatabase("admin");
+var command = new BsonDocument { { "setParameter", 1 }, { "diagnosticDataCollectionEnabled", 0 } };
+BsonDocument parameter = adm.RunCommand<BsonDocument>(command);
+
 var mongoDb = mongoClient.GetDatabase("Rinha");
+
+builder.Services.AddSingleton<IMongoClient>(_ => mongoClient);
 builder.Services.AddSingleton<IMongoDatabase>(_ => mongoDb);
+
+//builder.Logging.ClearProviders().AddConsole().SetMinimumLevel(LogLevel.Information);
 var app = builder.Build();
 
 var transacaoCollection = mongoDb.GetCollection<Transacao>("transacao");
+var clienteCollection = mongoDb.GetCollection<Cliente>("cliente");
+
 var indexKeysDefinitionTransacao = Builders<Transacao>.IndexKeys.Descending(p => p.Id_Cliente);
 await transacaoCollection.Indexes.CreateOneAsync(new CreateIndexModel<Transacao>(indexKeysDefinitionTransacao));
-
-var clienteCollection = mongoDb.GetCollection<Cliente>("cliente");
 var indexKeysDefinitionCliente = Builders<Cliente>.IndexKeys.Descending(p => p.Id_Cliente);
 await clienteCollection.Indexes.CreateOneAsync(new CreateIndexModel<Cliente>(indexKeysDefinitionCliente));
 
-app.MapGet("/", () => "Hello World!");
+app.Logger.LogInformation("Adding Routes");
+
+//app.MapGet("/", () => "Hello World!");
 
 app.MapGet("/clientes/{idCliente}/extrato", async Task<Results<Ok<Extrato>, NotFound, StatusCodeHttpResult>> (int idCliente, IMongoClient mc, IMongoDatabase db, CancellationToken cancellationToken) =>
 {
@@ -60,14 +82,15 @@ app.MapGet("/clientes/{idCliente}/extrato", async Task<Results<Ok<Extrato>, NotF
     catch (OperationCanceledException)
     {
         return TypedResults.StatusCode(408);
-    }catch(Exception)
+    }catch(Exception e)
     {
+        //logger.LogError("---------------------------------------------------------------------------------\nErro 422 in GET - Exception - " + e.Message + "\nTrace = " + e.StackTrace);
         return TypedResults.StatusCode(422);
     }
 });
 
 app.MapPost("/clientes/{idCliente}/transacoes", async Task<Results<Ok<TransacaoPost>, NotFound, UnprocessableEntity, StatusCodeHttpResult>>
-    (int idCliente, Transacao transacao, IMongoClient mc, IMongoDatabase db, CancellationToken cancellationToken) =>
+    ( int idCliente, Transacao transacao, IMongoClient mc, IMongoDatabase db, CancellationToken cancellationToken) =>
 {
     try
     {
@@ -85,13 +108,14 @@ app.MapPost("/clientes/{idCliente}/transacoes", async Task<Results<Ok<TransacaoP
             return TypedResults.NotFound();
 
         var transacaoReturn = new TransacaoPost();
-
-
-
         if (transacao.Tipo == TipoTransacao.d)
         {
-            if (clienteDocument.Saldo - transacao.Valor < - clienteDocument.Limite)
+            if (clienteDocument.Saldo - transacao.Valor < -clienteDocument.Limite)
+            {
+                //logger.LogError("Erro 422 - Body - " + transacao.ToString() + "\n cliente object - " + clienteDocument.ToString());
                 return TypedResults.UnprocessableEntity();
+            }
+                
 
             var update = Builders<Cliente>.Update.Set(x => x.Saldo, clienteDocument.Saldo - transacao.Valor);
             FilterDefinition<Cliente> filter = new BsonDocument("Id_Cliente", idCliente);
@@ -104,17 +128,18 @@ app.MapPost("/clientes/{idCliente}/transacoes", async Task<Results<Ok<TransacaoP
             await transacaoCollection.InsertOneAsync(transacao);
             transacaoReturn.Saldo = newCliente.Saldo;
             transacaoReturn.Limite = newCliente.Limite;
+
+            return TypedResults.Ok(transacaoReturn);
         }
-        else if (transacao.Tipo == TipoTransacao.c)
-        {
-            await transacaoCollection.InsertOneAsync(transacao);
-            transacaoReturn.Saldo = clienteDocument.Saldo;
-            transacaoReturn.Limite = clienteDocument.Limite;
-        }
+        await transacaoCollection.InsertOneAsync(transacao);
+        transacaoReturn.Saldo = clienteDocument.Saldo;
+        transacaoReturn.Limite = clienteDocument.Limite;
+
         return TypedResults.Ok(transacaoReturn);
     }
-    catch(Exception)
+    catch(Exception e)
     {
+        //logger.LogError("---------------------------------------------------------------------------------\nErro 422 in POST - Exception - " + e.Message + "\nTrace = " + e.StackTrace + "\n body da requisição = " + System.Text.Json.JsonSerializer.Serialize(transacao));
         return TypedResults.StatusCode(422);
     }
 });

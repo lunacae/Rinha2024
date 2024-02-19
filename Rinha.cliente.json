@@ -1,0 +1,40 @@
+[{
+  "_id": {
+    "$oid": "65c55e28a03a177909387f3b"
+  },
+  "Id_Cliente": 1,
+  "Limite": 100000,
+  "Saldo": 0
+},
+{
+  "_id": {
+    "$oid": "65c55e75a03a177909387f3c"
+  },
+  "Id_Cliente": 2,
+  "Limite": 80000,
+  "Saldo": 0
+},
+{
+  "_id": {
+    "$oid": "65c55e93a03a177909387f3e"
+  },
+  "Id_Cliente": 3,
+  "Limite": 1000000,
+  "Saldo": 0
+},
+{
+  "_id": {
+    "$oid": "65c55ea8a03a177909387f3f"
+  },
+  "Id_Cliente": 4,
+  "Limite": 10000000,
+  "Saldo": 0
+},
+{
+  "_id": {
+    "$oid": "65c55ebca03a177909387f40"
+  },
+  "Id_Cliente": 5,
+  "Limite": 500000,
+  "Saldo": 0
+}]
